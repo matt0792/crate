@@ -27,8 +27,6 @@ func main() {
 			os.Exit(1)
 		}
 		inspectProject(os.Args[2])
-	case "stats":
-		showAllStats()
 	case "drop":
 		if len(os.Args) < 3 {
 			fmt.Println("Error: project name required")
@@ -47,7 +45,6 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  cratectl projects           List all projects with their sizes")
 	fmt.Println("  cratectl inspect <project>  Show namespaces and counts for a project")
-	fmt.Println("  cratectl stats              Show complete stats for all projects")
 	fmt.Println("  cratectl drop <project>     Delete a project (requires sudo)")
 }
 
@@ -57,6 +54,25 @@ func getCrateDir() (string, error) {
 		return "", fmt.Errorf("could not find home directory: %w", err)
 	}
 	return filepath.Join(home, ".crate"), nil
+}
+
+func formatSize(bytes int64) string {
+	const (
+		KB = 1024
+		MB = 1024 * KB
+		GB = 1024 * MB
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.2f KB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }
 
 func listProjects() {
@@ -77,8 +93,8 @@ func listProjects() {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "PROJECT\tSIZE (bytes)\t")
-	fmt.Fprintln(w, "-------\t------------\t")
+	fmt.Fprintln(w, "PROJECT\tSIZE\t")
+	fmt.Fprintln(w, "-------\t----\t")
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -98,7 +114,7 @@ func listProjects() {
 			continue
 		}
 
-		fmt.Fprintf(w, "%s\t%d\t\n", projectName, info.Size())
+		fmt.Fprintf(w, "%s\t%s\t\n", projectName, formatSize(info.Size()))
 	}
 
 	w.Flush()
@@ -140,77 +156,6 @@ func inspectProject(projectName string) {
 	w.Flush()
 	fmt.Printf("\nTotal items: %d\n", totalCount)
 	fmt.Printf("Total namespaces: %d\n", len(namespaces))
-}
-
-func showAllStats() {
-	crateDir, err := getCrateDir()
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	entries, err := os.ReadDir(crateDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("No projects found (no .crate directory)")
-			return
-		}
-		fmt.Printf("Error reading crate directory: %v\n", err)
-		os.Exit(1)
-	}
-
-	projects := []string{}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			projects = append(projects, entry.Name())
-		}
-	}
-
-	if len(projects) == 0 {
-		fmt.Println("No projects found")
-		return
-	}
-
-	for i, projectName := range projects {
-		if i > 0 {
-			fmt.Println()
-		}
-
-		if err := crate.Project(projectName); err != nil {
-			fmt.Printf("Error initializing project %s: %v\n", projectName, err)
-			continue
-		}
-
-		size, err := crate.Size()
-		if err != nil {
-			fmt.Printf("Error getting size for %s: %v\n", projectName, err)
-			continue
-		}
-
-		namespaces := crate.Namespaces()
-
-		fmt.Printf("═══ %s ═══\n", projectName)
-		fmt.Printf("Size: %d bytes\n", size)
-
-		if len(namespaces) == 0 {
-			fmt.Println("No namespaces")
-			continue
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "\nNAMESPACE\tCOUNT\t")
-		fmt.Fprintln(w, "---------\t-----\t")
-
-		totalCount := 0
-		for _, ns := range namespaces {
-			count := crate.Count(ns)
-			totalCount += count
-			fmt.Fprintf(w, "%s\t%d\t\n", ns, count)
-		}
-
-		w.Flush()
-		fmt.Printf("\nTotal: %d items in %d namespaces\n", totalCount, len(namespaces))
-	}
 }
 
 func dropProject(projectName string) {
